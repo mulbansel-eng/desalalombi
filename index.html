@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pelayanan Surat Digital - Desa Lalombi</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome & Chart.js -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    @media print {
+      body { background-color: white !important; }
+      .no-print { display: none !important; }
+      .print-area { box-shadow: none !important; padding: 0 !important; margin: 0 !important; width: 100% !important; }
+      @page { margin: 1.5cm; size: A4 portrait; }
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #2563eb; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #1d4ed8; }
+    canvas.signature-pad { border: 2px dashed #cbd5e1; border-radius: 0.5rem; touch-action: none; cursor: crosshair; background: white; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased font-sans min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ====================================================================
+    // ⚠️ MASUKKAN URL WEB APP GOOGLE SCRIPT ANDA DI SINI
+    // Setelah Anda melakukan "Deploy" pada kode Code.gs, copas URL-nya kesini
+    // Jika kosong, aplikasi akan menggunakan mode lokal (sementara)
+    // ====================================================================
+    const GOOGLE_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwFqCpZ5Z12B_l1QclYv_JjfA0E3frHxmJqbnvAk0zYYnfzw8RP7P11JAOmE4zvJOVLJQ/exec"; 
+
+    const NAMA_DESA = "Lalombi";
+    const KECAMATAN = "Banawa Selatan";
+    const KABUPATEN = "Donggala";
+    const KODE_POS = "94350";
+    const KEPALA_DESA = "ARUS SIDORA";
+    const LOGO_DONGGALA = "https://i.ibb.co.com/5xhN0cm1/Logo-Donggala.png";
+    const ALAMAT_DESA = "Jalan Poros Palu - Majene, Desa Lalombi, Kec. Banawa Selatan, Kab. Donggala, Sulawesi Tengah 94350";
+
+    const JENIS_SURAT = [
+      { id: 'domisili', nama: 'Surat Keterangan Domisili', fields: [] },
+      { id: 'usaha', nama: 'Surat Keterangan Usaha', fields: [
+        { id: 'namaUsaha', label: 'Nama Usaha', placeholder: 'Misal: Warung Makan Barokah' },
+        { id: 'jenisUsaha', label: 'Jenis Usaha', placeholder: 'Misal: Kuliner / Sembako' }
+      ]},
+      { id: 'sktm', nama: 'Surat Keterangan Tidak Mampu', fields: [
+        { id: 'keperluan', label: 'Keperluan', placeholder: 'Misal: Syarat Beasiswa Anak' }
+      ]},
+      { id: 'skck', nama: 'Surat Pengantar SKCK', fields: [
+        { id: 'keperluan', label: 'Keperluan SKCK', placeholder: 'Misal: Melamar Pekerjaan / Daftar TNI' }
+      ]},
+      { id: 'kematian', nama: 'Surat Keterangan Kematian', fields: [
+        { id: 'namaAlmarhum', label: 'Nama Almarhum', placeholder: 'Nama sesuai KTP' },
+        { id: 'tanggalMeninggal', label: 'Tanggal Meninggal', type: 'date' },
+        { id: 'sebab', label: 'Sebab Meninggal', placeholder: 'Sakit / Usia Tua / Kecelakaan' },
+        { id: 'tempatMeninggal', label: 'Tempat Meninggal', placeholder: 'Misal: RSUD / Rumah' }
+      ]},
+      { id: 'kelahiran', nama: 'Surat Keterangan Kelahiran', fields: [
+        { id: 'namaAnak', label: 'Nama Anak', placeholder: 'Nama lengkap anak' },
+        { id: 'tanggalLahir', label: 'Tanggal Lahir', type: 'date' },
+        { id: 'jenisKelaminAnak', label: 'Jenis Kelamin Anak', placeholder: 'Laki-laki / Perempuan' },
+        { id: 'namaAyah', label: 'Nama Ayah', placeholder: 'Sesuai KK' },
+        { id: 'namaIbu', label: 'Nama Ibu', placeholder: 'Sesuai KK' }
+      ]}
+    ];
+
+    // --- KOMPONEN GRAFIK (CHART.JS) ---
+    const StatusChart = ({ data }) => {
+      const chartRef = useRef(null);
+      const chartInstance = useRef(null);
+
+      useEffect(() => {
+        if(chartInstance.current) { chartInstance.current.destroy(); }
+        if(!chartRef.current) return;
+
+        const ctx = chartRef.current.getContext('2d');
+        const counts = {
+          'Pending': data.filter(d => d.status === 'Pending').length,
+          'Menunggu Kades': data.filter(d => d.status === 'Menunggu Kades').length,
+          'Menunggu Cetak': data.filter(d => d.status === 'Menunggu Cetak').length,
+          'Selesai': data.filter(d => d.status === 'Selesai').length,
+          'Ditolak': data.filter(d => d.status === 'Ditolak').length
+        };
+
+        chartInstance.current = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Baru (Pending)', 'Tunggu Kades', 'Proses Cetak', 'Selesai', 'Ditolak'],
+            datasets: [{
+              data: [counts['Pending'], counts['Menunggu Kades'], counts['Menunggu Cetak'], counts['Selesai'], counts['Ditolak']],
+              backgroundColor: ['#eab308', '#3b82f6', '#a855f7', '#10b981', '#ef4444'],
+              borderWidth: 0
+            }]
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+        });
+
+        return () => { if(chartInstance.current) chartInstance.current.destroy(); }
+      }, [data]);
+
+      return <div className="h-48 w-full"><canvas ref={chartRef}></canvas></div>;
+    };
+
+    function App() {
+      // --- STATES ---
+      const [user, setUser] = useState(() => {
+        const savedUser = sessionStorage.getItem('desa_user_session');
+        return savedUser ? JSON.parse(savedUser) : null;
+      });
+      const [view, setView] = useState(() => {
+        const savedView = sessionStorage.getItem('desa_view_session');
+        return savedView ? savedView : 'login';
+      }); 
+      const [pengajuan, setPengajuan] = useState([]);
+      const [isLoadingData, setIsLoadingData] = useState(false);
+      const [selectedSuratCetak, setSelectedSuratCetak] = useState(null);
+      const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+
+      // State Login & Forms
+      const [loginRole, setLoginRole] = useState('warga'); 
+      const [loginNik, setLoginNik] = useState(''); const [loginNama, setLoginNama] = useState(''); const [loginHp, setLoginHp] = useState('');
+      const [username, setUsername] = useState(''); const [password, setPassword] = useState('');
+      const [selectedJenisId, setSelectedJenisId] = useState('');
+      const [formData, setFormData] = useState({});
+      const [berkasPendukung, setBerkasPendukung] = useState(null);
+      const [isSubmitting, setIsSubmitting] = useState(false);
+      const [searchTerm, setSearchTerm] = useState('');
+      const [filterStatus, setFilterStatus] = useState('All');
+
+      // Modals
+      const [previewModal, setPreviewModal] = useState({ isOpen: false, url: '' });
+      const [signatureModal, setSignatureModal] = useState({ isOpen: false, itemId: null });
+      const [uploadFinalModal, setUploadFinalModal] = useState({ isOpen: false, itemId: null });
+      const [finalFile, setFinalFile] = useState(null);
+      const [isUploadingFinal, setIsUploadingFinal] = useState(false);
+
+      // --- HELPERS & API CALLS ---
+      const showToast = (message, type = 'info') => {
+        setToast({ show: true, message, type });
+        setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 3500);
+      };
+
+      const kirimNotifikasiWA = (noHp, pesan) => {
+        if(!noHp) return;
+        const formattedPhone = noHp.startsWith('0') ? '62' + noHp.substring(1) : noHp;
+        const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(pesan)}`;
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+
+      const getDirectImageUrl = (url) => {
+        if (!url) return '';
+        if (url.startsWith('data:image')) return url; 
+        if (url.includes('Gagal')) return ''; 
+        const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        if (match && match[1]) {
+          return `https://lh3.googleusercontent.com/d/${match[1]}`;
+        }
+        return url;
+      };
+
+      const formatDate = (dateString) => {
+        if (!dateString) return '';
+        if (typeof dateString === 'string' && !dateString.includes('T') && !dateString.includes('-')) return dateString;
+        try {
+          const d = new Date(dateString);
+          if (isNaN(d.getTime())) return dateString;
+          const bulan = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+          return `${d.getDate()} ${bulan[d.getMonth()]} ${d.getFullYear()}`;
+        } catch (e) {
+          return dateString;
+        }
+      };
+
+      const convertFileToBase64 = (file, cb) => { 
+        if (file.size > 3 * 1024 * 1024) { showToast("Ukuran file max 3MB!", "error"); return; }
+        const r = new FileReader(); r.onloadend = () => cb(r.result); r.readAsDataURL(file); 
+      };
+
+      const fetchDataFromSheets = async () => {
+        if(!GOOGLE_APP_SCRIPT_URL) return; 
+        setIsLoadingData(true);
+        try {
+          const res = await fetch(GOOGLE_APP_SCRIPT_URL);
+          const data = await res.json();
+          setPengajuan(data);
+        } catch(e) { console.error("Gagal load data sheets", e); }
+        setIsLoadingData(false);
+      };
+
+      const sendDataToSheets = async (payload) => {
+        if(!GOOGLE_APP_SCRIPT_URL) return; 
+        try {
+          await fetch(GOOGLE_APP_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        } catch (e) { console.error("Gagal mengirim data", e); }
+      };
+
+      useEffect(() => {
+        if (user) {
+          sessionStorage.setItem('desa_user_session', JSON.stringify(user));
+        } else {
+          sessionStorage.removeItem('desa_user_session');
+        }
+      }, [user]);
+
+      useEffect(() => {
+        sessionStorage.setItem('desa_view_session', view);
+      }, [view]);
+
+      useEffect(() => {
+        if (user && view !== 'login') {
+          fetchDataFromSheets();
+        }
+      }, []);
+
+      const handleLogin = (e) => {
+        e.preventDefault();
+        if (loginRole === 'warga') {
+          if (loginNik.length < 10 && loginNik !== 'demo123') { showToast("NIK minimal 10 digit.", "error"); return; }
+          setUser({ role: 'warga', nik: loginNik, nama: loginNama, noHp: loginHp });
+          fetchDataFromSheets();
+          setView('dashboard_warga');
+          showToast(`Selamat datang, ${loginNama}`, 'success');
+        } else if (loginRole === 'admin') {
+          if (username === 'admin' && password === 'admin123') {
+            setUser({ role: 'admin', nama: 'Admin Pelayanan' });
+            fetchDataFromSheets();
+            setView('dashboard_admin');
+            showToast('Masuk sebagai Admin', 'success');
+          } else { showToast('Username/Password salah!', 'error'); }
+        } else if (loginRole === 'kades') {
+          if (username === 'kades' && password === 'kades123') {
+            setUser({ role: 'kades', nama: KEPALA_DESA });
+            fetchDataFromSheets();
+            setView('dashboard_kades');
+            showToast('Selamat datang, Bapak Kepala Desa', 'success');
+          } else { showToast('Username/Password salah!', 'error'); }
+        }
+      };
+
+      const handleLogout = () => { 
+        setUser(null); 
+        setView('login'); 
+        sessionStorage.removeItem('desa_user_session');
+        sessionStorage.removeItem('desa_view_session');
+      };
+
+      // --- MODALS ---
+      const ToastMessage = () => {
+        if (!toast.show) return null;
+        const bgColor = toast.type === 'error' ? 'bg-red-600' : toast.type === 'success' ? 'bg-emerald-600' : 'bg-blue-600';
+        return <div className={`fixed top-5 left-1/2 transform -translate-x-1/2 ${bgColor} text-white px-6 py-3 rounded-full shadow-lg z-50 flex items-center gap-2 animate-bounce`}><i className={`fas ${toast.type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle'}`}></i><span className="font-medium text-sm">{toast.message}</span></div>;
+      };
+
+      const ImagePreviewModal = () => {
+        if (!previewModal.isOpen) return null;
+        const directUrl = getDirectImageUrl(previewModal.url);
+        return (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl max-w-2xl w-full flex flex-col max-h-screen">
+              <div className="p-4 bg-slate-800 text-white flex justify-between"><h3 className="font-bold">Pratinjau Berkas</h3><button onClick={() => setPreviewModal({isOpen: false, url: ''})}><i className="fas fa-times text-xl"></i></button></div>
+              <div className="p-4 overflow-auto flex flex-col items-center justify-center bg-gray-100 min-h-[200px]">
+                {directUrl ? (
+                  <img 
+                    src={directUrl} 
+                    className="max-w-full h-auto rounded shadow" 
+                    onError={(e) => { 
+                      e.target.style.display = 'none'; 
+                      document.getElementById('fallback-link').style.display = 'block'; 
+                    }} 
+                  />
+                ) : null}
+                <div id="fallback-link" style={{ display: !directUrl ? 'block' : 'none' }} className="text-center mt-2">
+                   <p className="text-gray-600 mb-3 text-sm">Gambar gagal dimuat otomatis. Format mungkin tidak didukung.</p>
+                   <a href={previewModal.url} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 inline-block">Buka File Dokumen di Tab Baru</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const SignatureModal = () => {
+        const canvasRef = useRef(null);
+        const [isDrawing, setIsDrawing] = useState(false);
+
+        useEffect(() => { if (signatureModal.isOpen && canvasRef.current) { const ctx = canvasRef.current.getContext('2d'); ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#000000'; } }, [signatureModal.isOpen]);
+        if (!signatureModal.isOpen) return null;
+
+        const getPos = (e) => { const r = canvasRef.current.getBoundingClientRect(); return { x: (e.clientX || (e.touches && e.touches[0].clientX)) - r.left, y: (e.clientY || (e.touches && e.touches[0].clientY)) - r.top }; };
+        const startDraw = (e) => { e.preventDefault(); setIsDrawing(true); const pos = getPos(e); const ctx = canvasRef.current.getContext('2d'); ctx.beginPath(); ctx.moveTo(pos.x, pos.y); };
+        const draw = (e) => { e.preventDefault(); if (!isDrawing) return; const pos = getPos(e); const ctx = canvasRef.current.getContext('2d'); ctx.lineTo(pos.x, pos.y); ctx.stroke(); };
+        const endDraw = () => setIsDrawing(false);
+        const clearCanvas = () => { const c = canvasRef.current; c.getContext('2d').clearRect(0, 0, c.width, c.height); };
+
+        const handleSave = () => {
+          const ttdDataUrl = canvasRef.current.toDataURL('image/png');
+          setPengajuan(pengajuan.map(p => p.id === signatureModal.itemId ? { ...p, status: 'Menunggu Cetak', ttdKades: ttdDataUrl } : p));
+          sendDataToSheets({ action: 'updateTTD', id: signatureModal.itemId, ttdBase64: ttdDataUrl });
+          setSignatureModal({ isOpen: false, itemId: null });
+          showToast('Tanda tangan disimpan & diteruskan ke Admin', 'success');
+        };
+
+        return (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl w-full max-w-md shadow-2xl"><div className="p-4 bg-amber-500 text-white flex justify-between"><h3 className="font-bold"><i className="fas fa-pen-nib mr-2"></i>Tanda Tangan Digital</h3><button onClick={() => setSignatureModal({isOpen: false, itemId: null})}><i className="fas fa-times text-xl"></i></button></div>
+              <div className="p-5 flex flex-col items-center">
+                <canvas ref={canvasRef} width={320} height={200} className="signature-pad w-full bg-gray-50" onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseOut={endDraw} onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}></canvas>
+                <div className="flex w-full gap-3 mt-4"><button onClick={clearCanvas} className="flex-1 py-2 bg-gray-200 rounded-lg font-semibold hover:bg-gray-300">Hapus</button><button onClick={handleSave} className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Simpan</button></div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const UploadFinalModal = () => {
+        const [sendWa, setSendWa] = useState(true);
+        if (!uploadFinalModal.isOpen) return null;
+
+        const handleUploadSubmit = async (e) => {
+          e.preventDefault();
+          if(!finalFile) { showToast("Pilih file scan", "error"); return; }
+          
+          const p = pengajuan.find(x => x.id === uploadFinalModal.itemId);
+          
+          if (p && sendWa) { 
+             kirimNotifikasiWA(p.noHp, `Halo ${p.namaWarga}, Surat ${p.namaSurat} Anda sudah Selesai. Silakan unduh di aplikasi Pelayanan Desa Lalombi.`); 
+          }
+          
+          setIsUploadingFinal(true);
+          setPengajuan(prev => prev.map(item => item.id === uploadFinalModal.itemId ? { ...item, status: 'Selesai', finalDocUrl: finalFile } : item));
+          
+          await sendDataToSheets({ action: 'uploadFinal', id: uploadFinalModal.itemId, finalBase64: finalFile });
+          
+          setIsUploadingFinal(false);
+          setUploadFinalModal({ isOpen: false, itemId: null }); 
+          setFinalFile(null);
+          showToast('Dokumen Surat Berhasil Diunggah!', 'success');
+        };
+
+        return (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl w-full max-w-md shadow-2xl">
+              <div className="p-4 bg-blue-600 text-white flex justify-between">
+                <h3 className="font-bold"><i className="fas fa-upload mr-2"></i>Upload Surat Final</h3>
+                {!isUploadingFinal && <button type="button" onClick={() => setUploadFinalModal({isOpen: false, itemId: null})}><i className="fas fa-times text-xl"></i></button>}
+              </div>
+              <form onSubmit={handleUploadSubmit} className="p-5">
+                <input 
+                  type="file" 
+                  accept="image/*,application/pdf" 
+                  required 
+                  disabled={isUploadingFinal}
+                  onChange={(e) => { if(e.target.files[0]) convertFileToBase64(e.target.files[0], setFinalFile); }} 
+                  className="w-full text-sm text-gray-500 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700 mb-4"
+                />
+                <div className="mb-5 flex items-center gap-2 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                  <input type="checkbox" id="sendWaCheck" checked={sendWa} onChange={(e) => setSendWa(e.target.checked)} className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500" />
+                  <label htmlFor="sendWaCheck" className="text-sm font-semibold text-blue-800 cursor-pointer select-none">
+                    Kirim Notifikasi WhatsApp Warga
+                  </label>
+                </div>
+                <button type="submit" disabled={isUploadingFinal} className={`w-full py-3 text-white rounded-lg font-bold ${isUploadingFinal ? 'bg-gray-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                  {isUploadingFinal ? <><i className="fas fa-spinner fa-spin mr-2"></i> Mengunggah File...</> : 'Kirim ke Warga'}
+                </button>
+              </form>
+            </div>
+          </div>
+        );
+      };
+
+      // --- ROUTING VIEWS ---
+      if (view === 'login') {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-blue-800">
+            <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+            <ToastMessage />
+            <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl overflow-hidden z-10">
+              <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-8 text-center text-white">
+                <div className="w-20 h-24 flex items-center justify-center mx-auto mb-3"><img src={LOGO_DONGGALA} className="w-full h-full object-contain drop-shadow-md" /></div>
+                <h1 className="text-2xl font-bold">Desa {NAMA_DESA}</h1><p className="text-blue-100 mt-1 text-sm">Sistem Pelayanan Administrasi Digital</p>
+              </div>
+              <div className="p-6 md:p-8">
+                <div className="flex bg-gray-100 rounded-lg p-1 mb-6">
+                  <button onClick={() => setLoginRole('warga')} className={`flex-1 py-2 text-sm font-bold rounded-md ${loginRole === 'warga' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Masyarakat</button>
+                  <button onClick={() => setLoginRole('admin')} className={`flex-1 py-2 text-sm font-bold rounded-md ${loginRole === 'admin' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Admin</button>
+                  <button onClick={() => setLoginRole('kades')} className={`flex-1 py-2 text-sm font-bold rounded-md ${loginRole === 'kades' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Kades</button>
+                </div>
+                <form onSubmit={handleLogin} className="space-y-4">
+                  {loginRole === 'warga' ? (
+                    <div className="space-y-4">
+                      <div className="relative"><i className="fas fa-id-card absolute left-3 top-3.5 text-gray-400"></i><input type="text" required value={loginNik} onChange={(e) => setLoginNik(e.target.value.replace(/[^0-9]/g, ''))} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="16 Digit NIK Anda" /></div>
+                      <div className="relative"><i className="fas fa-user absolute left-3 top-3.5 text-gray-400"></i><input type="text" required value={loginNama} onChange={(e) => setLoginNama(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="Nama Sesuai KTP" /></div>
+                      <div className="relative"><i className="fab fa-whatsapp absolute left-3 top-3.5 text-gray-400 text-lg"></i><input type="tel" required value={loginHp} onChange={(e) => setLoginHp(e.target.value.replace(/[^0-9]/g, ''))} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="08xxxxxxxxxx" /></div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="relative"><i className="fas fa-user-shield absolute left-3 top-3.5 text-gray-400"></i><input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder={`Username`} /></div>
+                      <div className="relative"><i className="fas fa-lock absolute left-3 top-3.5 text-gray-400"></i><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="Password" /></div>
+                    </div>
+                  )}
+                  <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-lg hover:bg-blue-700 mt-6 shadow-lg"><i className="fas fa-sign-in-alt"></i> Masuk</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      if (view === 'dashboard_warga') {
+        const riwayatSaya = pengajuan.filter(p => p.nik === user.nik);
+        const getStatusBadge = (s) => {
+          if(s === 'Pending') return <span className="px-3 py-1 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-full text-xs font-bold"><i className="fas fa-clock mr-1"></i> Verifikasi Admin</span>;
+          if(s === 'Menunggu Kades') return <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-xs font-bold"><i className="fas fa-pen mr-1"></i> Menunggu Kades</span>;
+          if(s === 'Menunggu Cetak') return <span className="px-3 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-xs font-bold"><i className="fas fa-print mr-1"></i> Dicetak & Cap</span>;
+          if(s === 'Selesai') return <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold"><i className="fas fa-check mr-1"></i> Selesai</span>;
+          return <span className="px-3 py-1 bg-red-50 text-red-700 border border-red-200 rounded-full text-xs font-bold"><i className="fas fa-times mr-1"></i> Ditolak</span>;
+        }
+
+        return (
+          <div className="min-h-screen flex flex-col bg-slate-50">
+            <ToastMessage />
+            <header className="bg-blue-700 text-white p-4 shadow-md sticky top-0 z-20"><div className="max-w-4xl mx-auto flex justify-between items-center"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-white/20 rounded-full flex justify-center items-center"><i className="fas fa-user"></i></div><div><h1 className="font-bold">{user.nama}</h1><p className="text-xs text-blue-200">Warga Desa {NAMA_DESA}</p></div></div><button onClick={handleLogout} className="p-2.5 bg-red-500/20 text-red-100 rounded-full hover:bg-red-500"><i className="fas fa-power-off"></i></button></div></header>
+            <main className="flex-1 p-4 md:p-6 max-w-4xl mx-auto w-full space-y-6">
+              <div className="bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-4">
+                <div><h2 className="text-2xl font-bold mb-1">Butuh Surat Apa Hari Ini?</h2><p className="text-blue-50 text-sm">Ajukan permohonan secara digital lalu unduh PDF-nya.</p></div>
+                <button onClick={() => { setSelectedJenisId(''); setFormData({}); setBerkasPendukung(null); setView('form_pengajuan'); }} className="w-full md:w-auto bg-white text-blue-700 font-bold px-6 py-3 rounded-xl hover:scale-105 transition"><i className="fas fa-plus-circle mr-2"></i> Buat Pengajuan</button>
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-800 mb-4"><i className="fas fa-history text-blue-600 mr-2"></i> Riwayat Pengajuan</h3>
+                {isLoadingData ? <p className="text-center text-gray-500 py-10"><i className="fas fa-spinner fa-spin mr-2"></i> Memuat data...</p> : riwayatSaya.length === 0 ? <div className="text-center py-12 bg-white rounded-2xl border border-dashed"><i className="fas fa-folder-open text-3xl text-gray-300 mb-2"></i><p className="text-gray-500">Belum ada riwayat surat.</p></div> : (
+                  <div className="space-y-3">
+                    {riwayatSaya.map((item) => (
+                      <div key={item.id} className="bg-white p-4 md:p-5 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm hover:shadow-md">
+                        <div className="flex items-start gap-4">
+                          <div className={`p-3 rounded-lg ${item.status === 'Selesai' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}><i className="fas fa-file-alt text-xl"></i></div>
+                          <div><h4 className="font-bold text-gray-800">{item.namaSurat}</h4><div className="text-xs font-medium text-gray-500 mt-1"><i className="far fa-calendar-alt"></i> {formatDate(item.tanggal)} &nbsp; <i className="fas fa-hashtag"></i> {item.id}</div></div>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          {getStatusBadge(item.status)}
+                          {item.status === 'Selesai' && item.finalDocUrl && <a href={item.finalDocUrl} download={`Surat_${item.namaSurat}.pdf`} className="text-sm bg-blue-600 text-white px-4 py-1.5 rounded-lg hover:bg-blue-700 font-bold"><i className="fas fa-download mr-1"></i> Unduh File</a>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </main>
+          </div>
+        );
+      }
+
+      if (view === 'form_pengajuan') {
+        const suratAktif = JENIS_SURAT.find(j => j.id === selectedJenisId);
+        const handleSubmitSurat = (e) => {
+          e.preventDefault(); setIsSubmitting(true);
+          const dataBaru = { id: 'REQ' + Math.floor(Math.random() * 90000 + 10000), nik: user.nik, namaWarga: user.nama, noHp: user.noHp, jenisSuratId: selectedJenisId, namaSurat: suratAktif.nama, dataTambahan: formData, berkasUrl: berkasPendukung, status: 'Pending', tanggal: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) };
+          
+          setTimeout(() => {
+            setPengajuan([dataBaru, ...pengajuan]); 
+            sendDataToSheets({ action: 'create', ...dataBaru, berkasBase64: berkasPendukung }); 
+            showToast('Pengajuan terkirim!', 'success');
+            setIsSubmitting(false); setView('dashboard_warga');
+          }, 800); 
+        };
+
+        return (
+          <div className="min-h-screen flex flex-col bg-slate-50">
+            <header className="bg-white p-4 shadow-sm flex items-center gap-3 sticky top-0 z-20"><button onClick={() => setView('dashboard_warga')} className="p-2 bg-gray-100 rounded-full"><i className="fas fa-arrow-left"></i></button><h1 className="font-bold text-lg">Buat Pengajuan Baru</h1></header>
+            <main className="flex-1 p-4 max-w-2xl mx-auto w-full">
+              <form onSubmit={handleSubmitSurat} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Jenis Surat <span className="text-red-500">*</span></label>
+                  <select required className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50" value={selectedJenisId} onChange={(e) => { setSelectedJenisId(e.target.value); setFormData({}); }}>
+                    <option value="" disabled>-- Pilih surat --</option>
+                    {JENIS_SURAT.map(s => <option key={s.id} value={s.id}>{s.nama}</option>)}
+                  </select>
+                </div>
+                {suratAktif && suratAktif.fields.length > 0 && (
+                  <div className="pt-4 border-t border-gray-100 space-y-4">
+                    <h3 className="font-bold text-sm bg-blue-50 inline-block px-3 py-1 rounded text-blue-800">Data Tambahan</h3>
+                    {suratAktif.fields.map(f => (
+                      <div key={f.id}><label className="block text-sm font-semibold mb-1">{f.label} *</label><input type={f.type || 'text'} required className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-blue-500 bg-gray-50" placeholder={f.placeholder} value={formData[f.id] || ''} onChange={(e) => setFormData(prev => ({ ...prev, [f.id]: e.target.value }))} /></div>
+                    ))}
+                  </div>
+                )}
+                <div className="pt-4 border-t border-gray-100">
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Upload KTP/KK</label>
+                  <input type="file" required accept="image/*" onChange={(e) => { if(e.target.files[0]) convertFileToBase64(e.target.files[0], setBerkasPendukung); }} className="block w-full text-sm text-gray-500 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700"/>
+                </div>
+                <button type="submit" disabled={isSubmitting} className={`w-full text-white font-bold py-4 rounded-xl mt-6 ${isSubmitting ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700 shadow-lg'}`}>{isSubmitting ? 'Memproses...' : 'Kirim Permohonan'}</button>
+              </form>
+            </main>
+          </div>
+        );
+      }
+
+      if (view === 'dashboard_admin') {
+        const handleUpdateStatus = (id, newStatus) => {
+          setPengajuan(pengajuan.map(p => p.id === id ? { ...p, status: newStatus } : p));
+          sendDataToSheets({ action: 'updateStatus', id: id, newStatus: newStatus });
+          if(newStatus === 'Menunggu Kades') showToast(`Diteruskan ke Kades untuk TTD.`, 'success');
+        };
+
+        const filtered = pengajuan.filter(p => (filterStatus === 'All' || p.status === filterStatus) && (p.namaWarga.toLowerCase().includes(searchTerm.toLowerCase()) || p.id.toLowerCase().includes(searchTerm.toLowerCase())));
+
+        return (
+          <div className="min-h-screen bg-gray-100 flex flex-col">
+            <ToastMessage /> <ImagePreviewModal /> <UploadFinalModal />
+            <header className="bg-slate-800 text-white p-4 shadow-md sticky top-0 z-20"><div className="max-w-7xl mx-auto flex justify-between items-center"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-blue-600 rounded-lg flex justify-center items-center text-xl"><i className="fas fa-desktop"></i></div><div><h1 className="font-bold">Admin Pelayanan</h1><p className="text-xs text-slate-300">Desa {NAMA_DESA}</p></div></div><button onClick={handleLogout} className="bg-slate-700 px-4 py-2 rounded-lg hover:bg-red-600"><i className="fas fa-sign-out-alt"></i> Keluar</button></div></header>
+
+            <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="col-span-1 md:col-span-2 grid grid-cols-2 gap-4">
+                  <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-blue-500"><p className="text-xs text-gray-500 font-bold uppercase">Total Masuk</p><p className="text-3xl font-black">{pengajuan.length}</p></div>
+                  <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-yellow-500"><p className="text-xs text-gray-500 font-bold uppercase">Antrean Baru</p><p className="text-3xl font-black text-yellow-600">{pengajuan.filter(p=>p.status==='Pending').length}</p></div>
+                  <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-purple-500"><p className="text-xs text-gray-500 font-bold uppercase">Perlu Dicetak</p><p className="text-3xl font-black text-purple-600">{pengajuan.filter(p=>p.status==='Menunggu Cetak').length}</p></div>
+                  <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-emerald-500"><p className="text-xs text-gray-500 font-bold uppercase">Selesai</p><p className="text-3xl font-black text-emerald-600">{pengajuan.filter(p=>p.status==='Selesai').length}</p></div>
+                </div>
+                <div className="col-span-1 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col items-center">
+                  <h3 className="text-sm font-bold text-gray-600 mb-2 w-full text-center">Distribusi Status Surat</h3>
+                  {pengajuan.length > 0 ? <StatusChart data={pengajuan} /> : <div className="h-48 flex items-center text-gray-400">Belum ada data</div>}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-md border overflow-hidden">
+                <div className="p-4 border-b bg-gray-50 flex justify-between items-center"><h2 className="font-bold"><i className="fas fa-tasks text-blue-600 mr-2"></i>Antrean Surat</h2><select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-1.5 border rounded-lg text-sm outline-none"><option value="All">Semua</option><option value="Pending">Baru (Verifikasi)</option><option value="Menunggu Cetak">Selesai TTD (Cetak & Upload Surat)</option></select></div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left whitespace-nowrap">
+                    <thead><tr className="bg-gray-100 text-xs uppercase text-gray-600"><th className="p-4">ID</th><th className="p-4">Pemohon</th><th className="p-4">Dokumen</th><th className="p-4">Status</th><th className="p-4">Aksi</th></tr></thead>
+                    <tbody className="divide-y text-sm">
+                      {isLoadingData ? <tr><td colSpan="5" className="p-8 text-center text-gray-500">Memuat data dari Google Sheets...</td></tr> : filtered.length === 0 ? <tr><td colSpan="5" className="p-8 text-center text-gray-500">Antrean kosong.</td></tr> : filtered.map(item => (
+                        <tr key={item.id} className="hover:bg-blue-50/30">
+                          <td className="p-4"><div className="font-mono text-xs bg-gray-100 px-2 py-1 inline-block rounded">{item.id}</div><br/><span className="text-xs text-gray-500">{formatDate(item.tanggal)}</span></td>
+                          <td className="p-4 font-bold">{item.namaWarga}<br/><span className="text-xs font-normal text-gray-500">NIK: {item.nik}</span></td>
+                          <td className="p-4 font-bold">{item.namaSurat}<br/>{item.berkasUrl ? <button onClick={()=>setPreviewModal({isOpen: true, url: item.berkasUrl})} className="text-xs text-blue-600 font-normal hover:underline"><i className="fas fa-eye"></i> Cek Berkas</button> : <span className="text-xs text-red-500 font-normal">Tidak ada lampiran</span>}</td>
+                          <td className="p-4"><span className={`px-2 py-1 rounded-full text-[10px] font-bold border ${item.status==='Pending'?'bg-yellow-50 text-yellow-700':item.status==='Menunggu Cetak'?'bg-purple-50 text-purple-700':item.status==='Menunggu Kades'?'bg-blue-50 text-blue-700':item.status==='Selesai'?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'}`}>{item.status}</span></td>
+                          <td className="p-4">
+                            {item.status === 'Pending' && <div className="flex gap-2"><button onClick={() => handleUpdateStatus(item.id, 'Menunggu Kades')} className="bg-blue-600 text-white px-3 py-1.5 rounded text-xs hover:bg-blue-700">Verifikasi</button><button onClick={() => handleUpdateStatus(item.id, 'Ditolak')} className="bg-red-100 text-red-700 px-3 py-1.5 rounded text-xs">Tolak</button></div>}
+                            {item.status === 'Menunggu Cetak' && <div className="flex flex-col gap-2"><button onClick={() => { setSelectedSuratCetak(item); setView('cetak_surat'); }} className="bg-slate-800 text-white px-3 py-1.5 rounded text-xs"><i className="fas fa-print"></i> 1. Cetak</button><button onClick={() => setUploadFinalModal({isOpen: true, itemId: item.id})} className="bg-blue-600 text-white px-3 py-1.5 rounded text-xs"><i className="fas fa-upload"></i> 2. Upload Surat</button></div>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </main>
+          </div>
+        );
+      }
+
+      if (view === 'dashboard_kades') {
+        const butuhTtd = pengajuan.filter(p => p.status === 'Menunggu Kades');
+        return (
+          <div className="min-h-screen bg-slate-50 flex flex-col">
+            <ToastMessage /> <SignatureModal />
+            <header className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20"><div className="max-w-7xl mx-auto flex justify-between items-center"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-amber-500 rounded-lg flex justify-center items-center text-xl"><i className="fas fa-user-tie"></i></div><div><h1 className="font-bold">Dashboard Kades</h1><p className="text-xs text-slate-300">Desa {NAMA_DESA}</p></div></div><button onClick={handleLogout} className="bg-slate-800 px-4 py-2 rounded-lg hover:bg-red-600"><i className="fas fa-sign-out-alt"></i> Keluar</button></div></header>
+
+            <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full space-y-6">
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="col-span-1 md:col-span-2 bg-white rounded-2xl p-6 border shadow-sm flex flex-col md:flex-row items-center gap-6">
+                  <div className="w-16 h-16 bg-amber-100 rounded-full flex justify-center items-center text-amber-600 text-3xl"><i className="fas fa-file-signature"></i></div>
+                  <div className="text-center md:text-left"><h2 className="text-2xl font-black">Antrean Tanda Tangan</h2><p className="text-gray-600">Ada <b>{butuhTtd.length}</b> dokumen menunggu TTD Anda.</p></div>
+                </div>
+                <div className="col-span-1 bg-white rounded-2xl p-4 border shadow-sm flex flex-col items-center">
+                   <h3 className="text-sm font-bold text-gray-600 w-full text-center">Kinerja Pelayanan</h3>
+                   {pengajuan.length > 0 ? <StatusChart data={pengajuan} /> : <p className="text-gray-400 mt-10">Belum ada data</p>}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left whitespace-nowrap">
+                    <thead><tr className="bg-gray-100 text-xs uppercase text-gray-600"><th className="p-4">Data Dokumen</th><th className="p-4 text-right">Aksi</th></tr></thead>
+                    <tbody className="divide-y text-sm">
+                      {isLoadingData ? <tr><td colSpan="2" className="p-6 text-center text-gray-500">Memuat data dari Google Sheets...</td></tr> : butuhTtd.length === 0 ? <tr><td colSpan="2" className="p-6 text-center text-gray-400">Tidak ada antrean TTD.</td></tr> : butuhTtd.map(item => (
+                        <tr key={item.id}>
+                          <td className="p-4"><p className="font-bold">{item.namaSurat}</p><p className="text-xs text-gray-500">Pemohon: {item.namaWarga} | ID: {item.id}</p></td>
+                          <td className="p-4 text-right align-middle"><button onClick={() => setSignatureModal({isOpen: true, itemId: item.id})} className="bg-amber-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-amber-600"><i className="fas fa-pen-nib mr-2"></i>TTD Dokumen</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </main>
+          </div>
+        );
+      }
+
+      // --- TAMPILAN: CETAK SURAT (ADMIN) ---
+      if (view === 'cetak_surat' && selectedSuratCetak) {
+        const s = selectedSuratCetak;
+        const noSurat = `140 / ${s.id.replace('REQ','')} / DS-${NAMA_DESA.substring(0,3).toUpperCase()} / 2026`;
+
+        return (
+          <div className="min-h-screen bg-gray-300 md:p-8 flex flex-col items-center pb-20 print:bg-white print:p-0">
+            <div className="w-full max-w-[210mm] flex justify-between mb-6 no-print bg-white p-4 rounded-xl shadow"><button onClick={() => setView('dashboard_admin')} className="text-gray-700 bg-gray-100 px-4 py-2 rounded-lg font-bold"><i className="fas fa-arrow-left"></i> Kembali</button><button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-2 rounded-lg font-bold"><i className="fas fa-print"></i> Print</button></div>
+
+            <div className="print-area bg-white w-full max-w-[210mm] min-h-[297mm] p-8 md:p-12 shadow-2xl relative text-black" style={{fontFamily: "'Times New Roman', Times, serif", fontSize: '12pt'}}>
+              <div className="flex flex-col border-b-4 border-black pb-1 mb-1">
+                <div className="flex border-b border-black pb-3 items-center">
+                  <div className="w-20 h-24 sm:w-24 sm:h-24 flex items-center justify-center mr-3 sm:mr-4 shrink-0"><img src={LOGO_DONGGALA} alt="Logo" className="w-full h-full object-contain" /></div>
+                  <div className="flex-1 text-center px-1 sm:px-4"><h1 className="text-lg sm:text-xl font-bold uppercase">Pemerintah Kabupaten {KABUPATEN}</h1><h2 className="text-xl sm:text-2xl font-bold uppercase mt-0.5">Kecamatan {KECAMATAN}</h2><h3 className="text-2xl sm:text-3xl font-black uppercase mt-0.5">Kantor Desa {NAMA_DESA}</h3><p className="text-[10px] sm:text-xs mt-1.5 leading-tight">{ALAMAT_DESA}</p></div>
+                </div>
+              </div>
+              <div className="text-center mb-6 mt-4"><h4 className="text-xl font-bold uppercase inline-block border-b-2 border-black pb-0.5">{s.namaSurat}</h4><p className="text-base mt-1">Nomor : {noSurat}</p></div>
+              <div className="text-justify leading-relaxed space-y-3">
+                <p className="indent-8">Yang bertanda tangan di bawah ini, Kepala Desa {NAMA_DESA}, Kecamatan {KECAMATAN}, Kabupaten {KABUPATEN}, Provinsi Sulawesi Tengah, dengan ini menerangkan sebenar-benarnya bahwa:</p>
+                <table className="w-full ml-8 my-4">
+                  <tbody>
+                    <tr><td className="w-48 py-1">Nama Lengkap</td><td className="w-4">:</td><td className="font-bold uppercase">{s.namaWarga}</td></tr>
+                    <tr><td className="py-1">NIK</td><td>:</td><td>{s.nik}</td></tr>
+                    {s.dataTambahan && Object.entries(s.dataTambahan).map(([key, val]) => (
+                      <tr key={key}><td className="py-1 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</td><td>:</td><td className="font-bold">{val}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="indent-8">Nama tersebut di atas adalah benar-benar warga yang berdomisili di Desa {NAMA_DESA}, Kecamatan {KECAMATAN}, Kabupaten {KABUPATEN}.</p>
+                <p className="indent-8">Surat Keterangan ini diberikan kepada yang bersangkutan untuk dipergunakan sebagai kelengkapan <b>{s.namaSurat}</b> dan administrasi lainnya.</p>
+                <p className="indent-8">Demikian Surat Keterangan ini dibuat dengan sebenar-benarnya dan penuh tanggung jawab, agar dapat dipergunakan sebagaimana mestinya oleh pihak yang berkepentingan.</p>
+              </div>
+              <div className="flex justify-end mt-8 text-center">
+                <div className="w-64">
+                  <p>{NAMA_DESA}, {formatDate(s.tanggal)}</p>
+                  <p className="font-bold">Kepala Desa {NAMA_DESA}</p>
+                  <div className="flex justify-center my-1 h-20">
+                    {s.ttdKades && (
+                      <img 
+                        src={getDirectImageUrl(s.ttdKades)} 
+                        alt="TTD Kades" 
+                        className="max-h-full object-contain mix-blend-multiply" 
+                        onError={(e) => { e.target.style.display = 'none'; }} 
+                      />
+                    )}
+                  </div>
+                  <p className="font-bold underline uppercase tracking-wider">{KEPALA_DESA}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      return null;
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
