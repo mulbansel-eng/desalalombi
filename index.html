@@ -48,7 +48,8 @@
     const KODE_POS = "94350";
     const KEPALA_DESA = "ARUS SIDORA";
     const LOGO_DONGGALA = "https://i.ibb.co.com/5xhN0cm1/Logo-Donggala.png";
-    const ALAMAT_DESA = "Jalan Poros Palu - Majene, Desa Lalombi, Kec. Banawa Selatan, Kab. Donggala, Sulawesi Tengah 94350";
+    // Alamat diperbarui
+    const ALAMAT_DESA = "Jln.Trans Palu-Mamuju Desa Lalombi Kec. Banawa Selatan kodepos 94351";
 
     const JENIS_SURAT = [
       { id: 'domisili', nama: 'Surat Keterangan Domisili', fields: [] },
@@ -741,12 +742,24 @@
             <div className="w-full max-w-[210mm] flex justify-between mb-6 no-print bg-white p-4 rounded-xl shadow"><button onClick={() => setView('dashboard_admin')} className="text-gray-700 bg-gray-100 px-4 py-2 rounded-lg font-bold"><i className="fas fa-arrow-left"></i> Kembali</button><button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-2 rounded-lg font-bold"><i className="fas fa-print"></i> Print</button></div>
 
             <div className="print-area bg-white w-full max-w-[210mm] min-h-[297mm] p-8 md:p-12 shadow-2xl relative text-black" style={{fontFamily: "'Times New Roman', Times, serif", fontSize: '12pt'}}>
+              
+              {/* PENYEIMBANG KOP SURAT AGAR TENGAH (CENTER) */}
               <div className="flex flex-col border-b-4 border-black pb-1 mb-1">
-                <div className="flex border-b border-black pb-3 items-center">
-                  <div className="w-20 h-24 sm:w-24 sm:h-24 flex items-center justify-center mr-3 sm:mr-4 shrink-0"><img src={LOGO_DONGGALA} alt="Logo" className="w-full h-full object-contain" /></div>
-                  <div className="flex-1 text-center px-1 sm:px-4"><h1 className="text-lg sm:text-xl font-bold uppercase">Pemerintah Kabupaten {KABUPATEN}</h1><h2 className="text-xl sm:text-2xl font-bold uppercase mt-0.5">Kecamatan {KECAMATAN}</h2><h3 className="text-2xl sm:text-3xl font-black uppercase mt-0.5">Kantor Desa {NAMA_DESA}</h3><p className="text-[10px] sm:text-xs mt-1.5 leading-tight">{ALAMAT_DESA}</p></div>
+                <div className="flex border-b border-black pb-3 items-center justify-between">
+                  <div className="w-20 sm:w-24 h-24 flex items-center justify-center shrink-0">
+                    <img src={LOGO_DONGGALA} alt="Logo" className="w-full h-full object-contain" />
+                  </div>
+                  <div className="flex-1 text-center px-2">
+                    <h1 className="text-lg sm:text-xl font-bold uppercase">Pemerintah Kabupaten {KABUPATEN}</h1>
+                    <h2 className="text-xl sm:text-2xl font-bold uppercase mt-0.5">Kecamatan {KECAMATAN}</h2>
+                    <h3 className="text-2xl sm:text-3xl font-black uppercase mt-0.5">Kantor Desa {NAMA_DESA}</h3>
+                    <p className="text-[10px] sm:text-xs mt-1.5 leading-tight">{ALAMAT_DESA}</p>
+                  </div>
+                  {/* Kotak Dummy transparan agar flexbox benar-benar persis di tengah */}
+                  <div className="w-20 sm:w-24 shrink-0"></div> 
                 </div>
               </div>
+
               <div className="text-center mb-6 mt-4"><h4 className="text-xl font-bold uppercase inline-block border-b-2 border-black pb-0.5">{s.namaSurat}</h4><p className="text-base mt-1">Nomor : {noSurat}</p></div>
               <div className="text-justify leading-relaxed space-y-3">
                 <p className="indent-8">Yang bertanda tangan di bawah ini, Kepala Desa {NAMA_DESA}, Kecamatan {KECAMATAN}, Kabupaten {KABUPATEN}, Provinsi Sulawesi Tengah, dengan ini menerangkan sebenar-benarnya bahwa:</p>
