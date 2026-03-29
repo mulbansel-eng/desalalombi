@@ -150,6 +150,7 @@
       const [uploadFinalModal, setUploadFinalModal] = useState({ isOpen: false, itemId: null });
       const [finalFile, setFinalFile] = useState(null);
       const [isUploadingFinal, setIsUploadingFinal] = useState(false);
+      const [previewImgError, setPreviewImgError] = useState(false);
 
       // State Tanda Tangan
       const [signatureModal, setSignatureModal] = useState({ isOpen: false, itemId: null });
@@ -167,7 +168,14 @@
       const getWhatsAppUrl = (noHp, pesan) => {
         if(!noHp) return '#';
         let formattedPhone = String(noHp).replace(/\D/g, ''); 
-        if (formattedPhone.startsWith('0')) formattedPhone = '62' + formattedPhone.substring(1);
+        
+        // Perbaikan Format Nomor HP untuk WA
+        if (formattedPhone.startsWith('0')) {
+          formattedPhone = '62' + formattedPhone.substring(1);
+        } else if (!formattedPhone.startsWith('62')) {
+          formattedPhone = '62' + formattedPhone;
+        }
+        
         return `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(pesan)}`;
       };
 
@@ -176,7 +184,8 @@
         if (url.startsWith('data:image')) return url; 
         if (url.includes('Gagal')) return ''; 
         const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
-        if (match && match[1]) return `https://lh3.googleusercontent.com/d/${match[1]}`;
+        // Menggunakan thumbnail endpoint yang lebih stabil di bypass browser
+        if (match && match[1]) return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
         return url;
       };
 
@@ -249,6 +258,11 @@
           ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#000000'; 
         } 
       }, [signatureModal.isOpen]);
+
+      // Reset Error Gambar
+      useEffect(() => {
+        setPreviewImgError(false);
+      }, [previewModal.url]);
 
       // FUNGSI TANDA TANGAN KADES
       const getPos = (e) => { const r = canvasRef.current.getBoundingClientRect(); return { x: (e.clientX || (e.touches && e.touches[0].clientX)) - r.left, y: (e.clientY || (e.touches && e.touches[0].clientY)) - r.top }; };
@@ -343,10 +357,21 @@
                 <a href={previewModal.url} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white px-6 py-2 rounded-lg shadow hover:bg-blue-700 mb-4 flex items-center gap-2">
                    <i className="fas fa-external-link-alt"></i> Buka Dokumen Penuh di Tab Baru
                 </a>
-                {directUrl && (
-                  <img src={directUrl} className="max-w-full h-auto rounded shadow bg-white" onError={(e) => { e.target.style.display = 'none'; const msg = document.getElementById('fallback-msg'); if(msg) msg.style.display = 'block'; }} />
+                
+                {directUrl && !previewImgError && (
+                  <img 
+                    src={directUrl} 
+                    className="max-w-full h-auto rounded shadow bg-white" 
+                    onError={() => setPreviewImgError(true)} 
+                  />
                 )}
-                <p id="fallback-msg" className="text-gray-500 mt-2 text-sm text-center" style={{display: 'none'}}>Pratinjau otomatis diblokir oleh sistem.<br/>Silakan klik tombol biru di atas.</p>
+                
+                {(!directUrl || previewImgError) && (
+                  <p className="text-gray-500 mt-2 text-sm text-center">
+                    Pratinjau gambar diblokir oleh sistem atau berformat PDF.<br/>
+                    Silakan klik tombol biru di atas untuk membuka.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -574,7 +599,7 @@
                     <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                       <option value="All">Semua Antrean</option>
                       <option value="Pending">Baru (Verifikasi)</option>
-                      <option value="Menunggu Cetak">Selesai TTD (Cetak & Upload)</option>
+                      <option value="Menunggu Cetak">Selesai TTD (Cetak & Upload Surat)</option>
                     </select>
                   </div>
                 </div>
