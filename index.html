@@ -42,7 +42,7 @@
     // Setelah Anda melakukan "Deploy" pada kode Code.gs, copas URL-nya kesini
     // Jika kosong, aplikasi akan menggunakan mode lokal (sementara)
     // ====================================================================
-    const GOOGLE_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwFqCpZ5Z12B_l1QclYv_JjfA0E3frHxmJqbnvAk0zYYnfzw8RP7P11JAOmE4zvJOVLJQ/exec"; 
+    const GOOGLE_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyEpmaI7bP0m4NfR1cAAmfkCxPurmATZJNH87_2xjT0ftDzbIwe75-bzafoe7YJCogiVg/exec"; 
 
     const NAMA_DESA = "Lalombi";
     const KECAMATAN = "Banawa Selatan";
@@ -155,27 +155,28 @@
         setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 3500);
       };
 
+      // FUNGSI WHATSAPP: Perbaikan bypass Anti-Popup Blocker
       const kirimNotifikasiWA = (noHp, pesan) => {
         if(!noHp) return;
-        const formattedPhone = noHp.startsWith('0') ? '62' + noHp.substring(1) : noHp;
-        const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(pesan)}`;
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        let formattedPhone = noHp.replace(/\D/g, ''); // Hapus semua karakter non-angka
+        if (formattedPhone.startsWith('0')) {
+          formattedPhone = '62' + formattedPhone.substring(1);
+        }
+        // Menggunakan API WhatsApp resmi yang lebih stabil dari wa.me
+        const url = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(pesan)}`;
+        window.open(url, '_blank'); // Buka tab baru langsung
       };
 
+      // FUNGSI GAMBAR: Menghandle semua versi URL Google Drive
       const getDirectImageUrl = (url) => {
         if (!url) return '';
         if (url.startsWith('data:image')) return url; 
         if (url.includes('Gagal')) return ''; 
-        const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        
+        // Cek format ID di URL Drive (/d/ID/ atau ?id=ID)
+        const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
         if (match && match[1]) {
-          return `https://lh3.googleusercontent.com/d/${match[1]}`;
+          return `https://drive.google.com/uc?export=view&id=${match[1]}`;
         }
         return url;
       };
@@ -193,8 +194,14 @@
         }
       };
 
-      const convertFileToBase64 = (file, cb) => { 
-        if (file.size > 3 * 1024 * 1024) { showToast("Ukuran file max 3MB!", "error"); return; }
+      // FUNGSI FILE: Dilengkapi fitur otomatis clear form jika file kepanjangan
+      const convertFileToBase64 = (file, cb, inputElement) => { 
+        if (file.size > 3 * 1024 * 1024) { 
+          showToast("Ukuran file max 3MB!", "error"); 
+          if(inputElement) inputElement.value = ''; // Hapus nama file di input agar user sadar gagal
+          cb(null);
+          return; 
+        }
         const r = new FileReader(); r.onloadend = () => cb(r.result); r.readAsDataURL(file); 
       };
 
@@ -281,25 +288,32 @@
       const ImagePreviewModal = () => {
         if (!previewModal.isOpen) return null;
         const directUrl = getDirectImageUrl(previewModal.url);
+        
         return (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-xl max-w-2xl w-full flex flex-col max-h-screen">
-              <div className="p-4 bg-slate-800 text-white flex justify-between"><h3 className="font-bold">Pratinjau Berkas</h3><button onClick={() => setPreviewModal({isOpen: false, url: ''})}><i className="fas fa-times text-xl"></i></button></div>
-              <div className="p-4 overflow-auto flex flex-col items-center justify-center bg-gray-100 min-h-[200px]">
-                {directUrl ? (
+              <div className="p-4 bg-slate-800 text-white flex justify-between">
+                <h3 className="font-bold">Pratinjau Berkas</h3>
+                <button onClick={() => setPreviewModal({isOpen: false, url: ''})}><i className="fas fa-times text-xl"></i></button>
+              </div>
+              <div className="p-4 overflow-auto flex flex-col items-center justify-center bg-gray-100 min-h-[200px] relative">
+                {/* Fallback Jika Gambar Error */}
+                <div id="fallback-link" className="text-center absolute z-0 flex flex-col items-center justify-center w-full h-full" style={{ display: !directUrl ? 'flex' : 'none' }}>
+                   <p className="text-gray-500 mb-3 text-sm">Gambar tidak dapat dimuat otomatis (Mungkin file PDF/Dokumen).</p>
+                   <a href={previewModal.url} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700">Buka File Manual di Tab Baru</a>
+                </div>
+                
+                {/* Menampilkan Gambar */}
+                {directUrl && (
                   <img 
                     src={directUrl} 
-                    className="max-w-full h-auto rounded shadow" 
+                    className="max-w-full h-auto rounded shadow z-10 relative" 
                     onError={(e) => { 
-                      e.target.style.display = 'none'; 
-                      document.getElementById('fallback-link').style.display = 'block'; 
+                      e.target.style.display = 'none'; // Sembunyikan gambar patah
+                      document.getElementById('fallback-link').style.display = 'flex'; // Munculkan tombol link
                     }} 
                   />
-                ) : null}
-                <div id="fallback-link" style={{ display: !directUrl ? 'block' : 'none' }} className="text-center mt-2">
-                   <p className="text-gray-600 mb-3 text-sm">Gambar gagal dimuat otomatis. Format mungkin tidak didukung.</p>
-                   <a href={previewModal.url} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 inline-block">Buka File Dokumen di Tab Baru</a>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -343,25 +357,38 @@
         const [sendWa, setSendWa] = useState(true);
         if (!uploadFinalModal.isOpen) return null;
 
-        const handleUploadSubmit = async (e) => {
+        const handleUploadSubmit = (e) => {
           e.preventDefault();
-          if(!finalFile) { showToast("Pilih file scan", "error"); return; }
+          if(!finalFile) { showToast("Pilih file scan dahulu", "error"); return; }
           
           const p = pengajuan.find(x => x.id === uploadFinalModal.itemId);
           
+          // Mencegah popup blocker: jalankan WhatsApp sebelum status memuat
           if (p && sendWa) { 
-             kirimNotifikasiWA(p.noHp, `Halo ${p.namaWarga}, Surat ${p.namaSurat} Anda sudah Selesai. Silakan unduh di aplikasi Pelayanan Desa Lalombi.`); 
+             kirimNotifikasiWA(p.noHp, `Halo ${p.namaWarga}, Surat ${p.namaSurat} Anda sudah selesai di proses oleh Desa Lalombi. Silakan masuk ke aplikasi untuk mengunduhnya.`); 
           }
           
           setIsUploadingFinal(true);
-          setPengajuan(prev => prev.map(item => item.id === uploadFinalModal.itemId ? { ...item, status: 'Selesai', finalDocUrl: finalFile } : item));
           
-          await sendDataToSheets({ action: 'uploadFinal', id: uploadFinalModal.itemId, finalBase64: finalFile });
-          
-          setIsUploadingFinal(false);
-          setUploadFinalModal({ isOpen: false, itemId: null }); 
-          setFinalFile(null);
-          showToast('Dokumen Surat Berhasil Diunggah!', 'success');
+          // Menggunakan SetTimeout agar UI sempat memunculkan tulisan "Mengunggah File..."
+          setTimeout(async () => {
+            try {
+              // Update state layar agar status tabel langsung berubah "Selesai"
+              setPengajuan(prev => prev.map(item => item.id === uploadFinalModal.itemId ? { ...item, status: 'Selesai', finalDocUrl: finalFile } : item));
+              
+              // Proses Upload Berat (Stringify Base64) ke Sheet
+              await sendDataToSheets({ action: 'uploadFinal', id: uploadFinalModal.itemId, finalBase64: finalFile });
+              
+              showToast('Dokumen Surat Berhasil Diunggah!', 'success');
+            } catch(err) {
+              console.error(err);
+              showToast('Terjadi kendala saat upload', 'error');
+            } finally {
+              setIsUploadingFinal(false);
+              setUploadFinalModal({ isOpen: false, itemId: null }); 
+              setFinalFile(null);
+            }
+          }, 100); // 100ms Jeda agar layar tidak macet mendadak
         };
 
         return (
@@ -377,15 +404,24 @@
                   accept="image/*,application/pdf" 
                   required 
                   disabled={isUploadingFinal}
-                  onChange={(e) => { if(e.target.files[0]) convertFileToBase64(e.target.files[0], setFinalFile); }} 
+                  onChange={(e) => { 
+                    if(e.target.files[0]) {
+                      // e.target dipassing agar input form otomatis direset jika file kebesaran
+                      convertFileToBase64(e.target.files[0], setFinalFile, e.target); 
+                    } else {
+                      setFinalFile(null);
+                    }
+                  }} 
                   className="w-full text-sm text-gray-500 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700 mb-4"
                 />
+                
                 <div className="mb-5 flex items-center gap-2 bg-blue-50 p-3 rounded-lg border border-blue-100">
-                  <input type="checkbox" id="sendWaCheck" checked={sendWa} onChange={(e) => setSendWa(e.target.checked)} className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500" />
+                  <input type="checkbox" id="sendWaCheck" checked={sendWa} onChange={(e) => setSendWa(e.target.checked)} className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500" disabled={isUploadingFinal} />
                   <label htmlFor="sendWaCheck" className="text-sm font-semibold text-blue-800 cursor-pointer select-none">
                     Kirim Notifikasi WhatsApp Warga
                   </label>
                 </div>
+
                 <button type="submit" disabled={isUploadingFinal} className={`w-full py-3 text-white rounded-lg font-bold ${isUploadingFinal ? 'bg-gray-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700'}`}>
                   {isUploadingFinal ? <><i className="fas fa-spinner fa-spin mr-2"></i> Mengunggah File...</> : 'Kirim ke Warga'}
                 </button>
@@ -512,7 +548,9 @@
                 )}
                 <div className="pt-4 border-t border-gray-100">
                   <label className="block text-sm font-bold text-gray-700 mb-2">Upload KTP/KK</label>
-                  <input type="file" required accept="image/*" onChange={(e) => { if(e.target.files[0]) convertFileToBase64(e.target.files[0], setBerkasPendukung); }} className="block w-full text-sm text-gray-500 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700"/>
+                  <input type="file" required accept="image/*" onChange={(e) => { 
+                    if(e.target.files[0]) convertFileToBase64(e.target.files[0], setBerkasPendukung, e.target); 
+                  }} className="block w-full text-sm text-gray-500 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700"/>
                 </div>
                 <button type="submit" disabled={isSubmitting} className={`w-full text-white font-bold py-4 rounded-xl mt-6 ${isSubmitting ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700 shadow-lg'}`}>{isSubmitting ? 'Memproses...' : 'Kirim Permohonan'}</button>
               </form>
