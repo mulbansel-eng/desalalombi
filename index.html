@@ -39,7 +39,6 @@
 
     // ====================================================================
     // ⚠️ MASUKKAN URL WEB APP GOOGLE SCRIPT ANDA DI SINI
-    // Setelah Anda melakukan "Deploy" pada kode Code.gs, copas URL-nya kesini
     const GOOGLE_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw60xj8HZ7RzyebGinvEn6VE6trNdbCdDWI-KkyQtO45Ihyt8KH5RUH2CxXuRFqD9wX7Q/exec"; 
     // ====================================================================
 
@@ -78,23 +77,22 @@
       ]}
     ];
 
-    // --- KOMPONEN GRAFIK (CHART.JS) ---
+    // --- KOMPONEN GRAFIK (ANTI-CRASH) ---
     const StatusChart = ({ data }) => {
       const chartRef = useRef(null);
       const chartInstance = useRef(null);
 
       useEffect(() => {
         if(chartInstance.current) { chartInstance.current.destroy(); }
-        // Pencegahan Crash: Pastikan data adalah array
         if(!chartRef.current || !Array.isArray(data)) return;
 
         const ctx = chartRef.current.getContext('2d');
         const counts = {
-          'Pending': data.filter(d => d?.status === 'Pending').length,
-          'Menunggu Kades': data.filter(d => d?.status === 'Menunggu Kades').length,
-          'Menunggu Cetak': data.filter(d => d?.status === 'Menunggu Cetak').length,
-          'Selesai': data.filter(d => d?.status === 'Selesai').length,
-          'Ditolak': data.filter(d => d?.status === 'Ditolak').length
+          'Pending': data.filter(d => d && d.status === 'Pending').length,
+          'Menunggu Kades': data.filter(d => d && d.status === 'Menunggu Kades').length,
+          'Menunggu Cetak': data.filter(d => d && d.status === 'Menunggu Cetak').length,
+          'Selesai': data.filter(d => d && d.status === 'Selesai').length,
+          'Ditolak': data.filter(d => d && d.status === 'Ditolak').length
         };
 
         chartInstance.current = new Chart(ctx, {
@@ -117,7 +115,10 @@
     };
 
     function App() {
-      // --- STATES & SESSIONS ---
+      // ==========================================
+      // 1. SEMUA HOOKS DILETAKKAN DI LEVEL TERATAS
+      // Mencegah error "Rendered fewer hooks" & Layar Putih
+      // ==========================================
       const [user, setUser] = useState(() => {
         try {
           const savedUser = sessionStorage.getItem('desa_user_session');
@@ -144,36 +145,38 @@
       const [searchTerm, setSearchTerm] = useState('');
       const [filterStatus, setFilterStatus] = useState('All');
 
-      // Modals
+      // State Modals Utama
       const [previewModal, setPreviewModal] = useState({ isOpen: false, url: '' });
-      const [signatureModal, setSignatureModal] = useState({ isOpen: false, itemId: null });
       const [uploadFinalModal, setUploadFinalModal] = useState({ isOpen: false, itemId: null });
       const [finalFile, setFinalFile] = useState(null);
       const [isUploadingFinal, setIsUploadingFinal] = useState(false);
 
-      // --- HELPERS & API CALLS ---
+      // State Tanda Tangan
+      const [signatureModal, setSignatureModal] = useState({ isOpen: false, itemId: null });
+      const canvasRef = useRef(null);
+      const [isDrawing, setIsDrawing] = useState(false);
+
+      // ==========================================
+      // 2. LOGIKA & FUNGSI (HELPERS)
+      // ==========================================
       const showToast = (message, type = 'info') => {
         setToast({ show: true, message, type });
         setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 3500);
       };
 
-      // Helper untuk Pembuat Tautan WA Resmi (Anti Popup-Blocker)
       const getWhatsAppUrl = (noHp, pesan) => {
         if(!noHp) return '#';
-        let formattedPhone = noHp.replace(/\D/g, ''); 
+        let formattedPhone = String(noHp).replace(/\D/g, ''); 
         if (formattedPhone.startsWith('0')) formattedPhone = '62' + formattedPhone.substring(1);
         return `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(pesan)}`;
       };
 
-      // Helper Gambar G-Drive dengan server lh3
       const getDirectImageUrl = (url) => {
         if (!url) return '';
         if (url.startsWith('data:image')) return url; 
         if (url.includes('Gagal')) return ''; 
         const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
-        if (match && match[1]) {
-          return `https://lh3.googleusercontent.com/d/${match[1]}`;
-        }
+        if (match && match[1]) return `https://lh3.googleusercontent.com/d/${match[1]}`;
         return url;
       };
 
@@ -186,7 +189,7 @@
           const bulan = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
           return `${d.getDate()} ${bulan[d.getMonth()]} ${d.getFullYear()}`;
         } catch (e) {
-          return dateString;
+          return String(dateString);
         }
       };
 
@@ -206,12 +209,8 @@
         try {
           const res = await fetch(GOOGLE_APP_SCRIPT_URL);
           const data = await res.json();
-          // Mencegah Crash jika data bukan array
-          if(Array.isArray(data)) {
-             setPengajuan(data);
-          } else {
-             setPengajuan([]);
-          }
+          if(Array.isArray(data)) setPengajuan(data);
+          else setPengajuan([]);
         } catch(e) { 
           console.error("Gagal load data sheets", e); 
           setPengajuan([]);
@@ -231,7 +230,7 @@
         } catch (e) { console.error("Gagal mengirim data", e); }
       };
 
-      // Merekam Sesi
+      // Efek Lifecycle & Sesi
       useEffect(() => {
         if (user) sessionStorage.setItem('desa_user_session', JSON.stringify(user));
         else sessionStorage.removeItem('desa_user_session');
@@ -243,6 +242,52 @@
         if (user && view !== 'login') fetchDataFromSheets();
       }, []);
 
+      // Efek Khusus Kanvas (Tanda Tangan)
+      useEffect(() => { 
+        if (signatureModal.isOpen && canvasRef.current) { 
+          const ctx = canvasRef.current.getContext('2d'); 
+          ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#000000'; 
+        } 
+      }, [signatureModal.isOpen]);
+
+      // FUNGSI TANDA TANGAN KADES
+      const getPos = (e) => { const r = canvasRef.current.getBoundingClientRect(); return { x: (e.clientX || (e.touches && e.touches[0].clientX)) - r.left, y: (e.clientY || (e.touches && e.touches[0].clientY)) - r.top }; };
+      const startDraw = (e) => { e.preventDefault(); setIsDrawing(true); const pos = getPos(e); const ctx = canvasRef.current.getContext('2d'); ctx.beginPath(); ctx.moveTo(pos.x, pos.y); };
+      const draw = (e) => { e.preventDefault(); if (!isDrawing) return; const pos = getPos(e); const ctx = canvasRef.current.getContext('2d'); ctx.lineTo(pos.x, pos.y); ctx.stroke(); };
+      const endDraw = () => setIsDrawing(false);
+      const clearCanvas = () => { const c = canvasRef.current; c.getContext('2d').clearRect(0, 0, c.width, c.height); };
+      
+      const handleSaveSignature = () => {
+        if (!canvasRef.current) return;
+        const ttdDataUrl = canvasRef.current.toDataURL('image/png');
+        setPengajuan(prev => Array.isArray(prev) ? prev.map(p => p.id === signatureModal.itemId ? { ...p, status: 'Menunggu Cetak', ttdKades: ttdDataUrl } : p) : []);
+        sendDataToSheets({ action: 'updateTTD', id: signatureModal.itemId, ttdBase64: ttdDataUrl });
+        setSignatureModal({ isOpen: false, itemId: null });
+        showToast('Tanda tangan disimpan & diteruskan ke Admin', 'success');
+      };
+
+      const handleUploadSubmit = (e) => {
+        e.preventDefault();
+        if(!finalFile) { showToast("Pilih file scan dahulu", "error"); return; }
+        setIsUploadingFinal(true);
+        
+        setTimeout(async () => {
+          try {
+            setPengajuan(prev => Array.isArray(prev) ? prev.map(item => item.id === uploadFinalModal.itemId ? { ...item, status: 'Selesai', finalDocUrl: finalFile } : item) : []);
+            await sendDataToSheets({ action: 'uploadFinal', id: uploadFinalModal.itemId, finalBase64: finalFile });
+            showToast('Dokumen Surat Berhasil Disimpan!', 'success');
+          } catch(err) {
+            console.error(err);
+            showToast('Terjadi kendala saat menyimpan', 'error');
+          } finally {
+            setIsUploadingFinal(false);
+            setUploadFinalModal({ isOpen: false, itemId: null }); 
+            setFinalFile(null);
+          }
+        }, 100); 
+      };
+
+      // --- LOGOUT & LOGIN ---
       const handleLogin = (e) => {
         e.preventDefault();
         if (loginRole === 'warga') {
@@ -275,17 +320,18 @@
         sessionStorage.removeItem('desa_view_session');
       };
 
-      // --- MODALS ---
-      const ToastMessage = () => {
+      // ==========================================
+      // 3. RENDER MODALS (Fungsi Inline)
+      // ==========================================
+      const renderToast = () => {
         if (!toast.show) return null;
         const bgColor = toast.type === 'error' ? 'bg-red-600' : toast.type === 'success' ? 'bg-emerald-600' : 'bg-blue-600';
         return <div className={`fixed top-5 left-1/2 transform -translate-x-1/2 ${bgColor} text-white px-6 py-3 rounded-full shadow-lg z-50 flex items-center gap-2 animate-bounce`}><i className={`fas ${toast.type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle'}`}></i><span className="font-medium text-sm">{toast.message}</span></div>;
       };
 
-      const ImagePreviewModal = () => {
+      const renderImagePreviewModal = () => {
         if (!previewModal.isOpen) return null;
         const directUrl = getDirectImageUrl(previewModal.url);
-        
         return (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-xl max-w-2xl w-full flex flex-col max-h-[90vh]">
@@ -294,95 +340,35 @@
                 <button onClick={() => setPreviewModal({isOpen: false, url: ''})}><i className="fas fa-times text-xl"></i></button>
               </div>
               <div className="p-5 overflow-auto flex flex-col items-center justify-center bg-gray-100 flex-1">
-                
-                {/* Tombol Utama Buka Dokumen (Fallback Terbaik) */}
                 <a href={previewModal.url} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white px-6 py-2 rounded-lg shadow hover:bg-blue-700 mb-4 flex items-center gap-2">
                    <i className="fas fa-external-link-alt"></i> Buka Dokumen Penuh di Tab Baru
                 </a>
-
-                {/* Pratinjau Gambar Langsung */}
                 {directUrl && (
-                  <img 
-                    src={directUrl} 
-                    className="max-w-full h-auto rounded shadow bg-white" 
-                    onError={(e) => { 
-                      e.target.style.display = 'none'; 
-                      const msg = document.getElementById('fallback-msg');
-                      if(msg) msg.style.display = 'block';
-                    }} 
-                  />
+                  <img src={directUrl} className="max-w-full h-auto rounded shadow bg-white" onError={(e) => { e.target.style.display = 'none'; const msg = document.getElementById('fallback-msg'); if(msg) msg.style.display = 'block'; }} />
                 )}
-                <p id="fallback-msg" className="text-gray-500 mt-2 text-sm text-center" style={{display: 'none'}}>
-                  Pratinjau otomatis diblokir oleh Google Drive/File berformat PDF.<br/>Silakan klik tombol biru di atas untuk melihatnya.
-                </p>
+                <p id="fallback-msg" className="text-gray-500 mt-2 text-sm text-center" style={{display: 'none'}}>Pratinjau otomatis diblokir oleh sistem.<br/>Silakan klik tombol biru di atas.</p>
               </div>
             </div>
           </div>
         );
       };
 
-      const SignatureModal = () => {
-        const canvasRef = useRef(null);
-        const [isDrawing, setIsDrawing] = useState(false);
-
-        useEffect(() => { if (signatureModal.isOpen && canvasRef.current) { const ctx = canvasRef.current.getContext('2d'); ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#000000'; } }, [signatureModal.isOpen]);
+      const renderSignatureModal = () => {
         if (!signatureModal.isOpen) return null;
-
-        const getPos = (e) => { const r = canvasRef.current.getBoundingClientRect(); return { x: (e.clientX || (e.touches && e.touches[0].clientX)) - r.left, y: (e.clientY || (e.touches && e.touches[0].clientY)) - r.top }; };
-        const startDraw = (e) => { e.preventDefault(); setIsDrawing(true); const pos = getPos(e); const ctx = canvasRef.current.getContext('2d'); ctx.beginPath(); ctx.moveTo(pos.x, pos.y); };
-        const draw = (e) => { e.preventDefault(); if (!isDrawing) return; const pos = getPos(e); const ctx = canvasRef.current.getContext('2d'); ctx.lineTo(pos.x, pos.y); ctx.stroke(); };
-        const endDraw = () => setIsDrawing(false);
-        const clearCanvas = () => { const c = canvasRef.current; c.getContext('2d').clearRect(0, 0, c.width, c.height); };
-
-        const handleSave = () => {
-          const ttdDataUrl = canvasRef.current.toDataURL('image/png');
-          setPengajuan(pengajuan.map(p => p.id === signatureModal.itemId ? { ...p, status: 'Menunggu Cetak', ttdKades: ttdDataUrl } : p));
-          sendDataToSheets({ action: 'updateTTD', id: signatureModal.itemId, ttdBase64: ttdDataUrl });
-          setSignatureModal({ isOpen: false, itemId: null });
-          showToast('Tanda tangan disimpan & diteruskan ke Admin', 'success');
-        };
-
         return (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-xl w-full max-w-md shadow-2xl"><div className="p-4 bg-amber-500 text-white flex justify-between"><h3 className="font-bold"><i className="fas fa-pen-nib mr-2"></i>Tanda Tangan Digital</h3><button onClick={() => setSignatureModal({isOpen: false, itemId: null})}><i className="fas fa-times text-xl"></i></button></div>
               <div className="p-5 flex flex-col items-center">
                 <canvas ref={canvasRef} width={320} height={200} className="signature-pad w-full bg-gray-50" onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseOut={endDraw} onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}></canvas>
-                <div className="flex w-full gap-3 mt-4"><button onClick={clearCanvas} className="flex-1 py-2 bg-gray-200 rounded-lg font-semibold hover:bg-gray-300">Hapus</button><button onClick={handleSave} className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Simpan</button></div>
+                <div className="flex w-full gap-3 mt-4"><button onClick={clearCanvas} className="flex-1 py-2 bg-gray-200 rounded-lg font-semibold hover:bg-gray-300">Hapus</button><button onClick={handleSaveSignature} className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Simpan</button></div>
               </div>
             </div>
           </div>
         );
       };
 
-      const UploadFinalModal = () => {
+      const renderUploadFinalModal = () => {
         if (!uploadFinalModal.isOpen) return null;
-
-        const handleUploadSubmit = (e) => {
-          e.preventDefault();
-          if(!finalFile) { showToast("Pilih file scan dahulu", "error"); return; }
-          
-          setIsUploadingFinal(true);
-          
-          setTimeout(async () => {
-            try {
-              // Update state layar agar status tabel langsung berubah "Selesai"
-              setPengajuan(prev => Array.isArray(prev) ? prev.map(item => item.id === uploadFinalModal.itemId ? { ...item, status: 'Selesai', finalDocUrl: finalFile } : item) : []);
-              
-              // Proses Upload Berat ke Sheet
-              await sendDataToSheets({ action: 'uploadFinal', id: uploadFinalModal.itemId, finalBase64: finalFile });
-              
-              showToast('Dokumen Surat Berhasil Disimpan!', 'success');
-            } catch(err) {
-              console.error(err);
-              showToast('Terjadi kendala saat menyimpan', 'error');
-            } finally {
-              setIsUploadingFinal(false);
-              setUploadFinalModal({ isOpen: false, itemId: null }); 
-              setFinalFile(null);
-            }
-          }, 100); 
-        };
-
         return (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-xl w-full max-w-md shadow-2xl">
@@ -391,21 +377,7 @@
                 {!isUploadingFinal && <button type="button" onClick={() => setUploadFinalModal({isOpen: false, itemId: null})}><i className="fas fa-times text-xl"></i></button>}
               </div>
               <form onSubmit={handleUploadSubmit} className="p-5">
-                <input 
-                  type="file" 
-                  accept="image/*,application/pdf" 
-                  required 
-                  disabled={isUploadingFinal}
-                  onChange={(e) => { 
-                    if(e.target.files[0]) {
-                      convertFileToBase64(e.target.files[0], setFinalFile, e.target); 
-                    } else {
-                      setFinalFile(null);
-                    }
-                  }} 
-                  className="w-full text-sm text-gray-500 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700 mb-6"
-                />
-
+                <input type="file" accept="image/*,application/pdf" required disabled={isUploadingFinal} onChange={(e) => { if(e.target.files[0]) convertFileToBase64(e.target.files[0], setFinalFile, e.target); else setFinalFile(null); }} className="w-full text-sm text-gray-500 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700 mb-6" />
                 <button type="submit" disabled={isUploadingFinal} className={`w-full py-3 text-white rounded-lg font-bold ${isUploadingFinal ? 'bg-gray-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700'}`}>
                   {isUploadingFinal ? <><i className="fas fa-spinner fa-spin mr-2"></i> Menyimpan Dokumen...</> : 'Simpan Dokumen'}
                 </button>
@@ -415,12 +387,14 @@
         );
       };
 
-      // --- ROUTING VIEWS ---
+      // ==========================================
+      // 4. ROUTING VIEWS (HALAMAN UTAMA)
+      // ==========================================
       if (view === 'login') {
         return (
           <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-blue-800">
             <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-            <ToastMessage />
+            {renderToast()}
             <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl overflow-hidden z-10">
               <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-8 text-center text-white">
                 <div className="w-20 h-24 flex items-center justify-center mx-auto mb-3"><img src={LOGO_DONGGALA} className="w-full h-full object-contain drop-shadow-md" /></div>
@@ -454,7 +428,8 @@
       }
 
       if (view === 'dashboard_warga') {
-        const riwayatSaya = Array.isArray(pengajuan) ? pengajuan.filter(p => p.nik === user.nik) : [];
+        const safePengajuan = Array.isArray(pengajuan) ? pengajuan : [];
+        const riwayatSaya = safePengajuan.filter(p => p && p.nik === user?.nik);
         const getStatusBadge = (s) => {
           if(s === 'Pending') return <span className="px-3 py-1 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-full text-xs font-bold"><i className="fas fa-clock mr-1"></i> Verifikasi Admin</span>;
           if(s === 'Menunggu Kades') return <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-xs font-bold"><i className="fas fa-pen mr-1"></i> Menunggu Kades</span>;
@@ -465,8 +440,8 @@
 
         return (
           <div className="min-h-screen flex flex-col bg-slate-50">
-            <ToastMessage />
-            <header className="bg-blue-700 text-white p-4 shadow-md sticky top-0 z-20"><div className="max-w-4xl mx-auto flex justify-between items-center"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-white/20 rounded-full flex justify-center items-center"><i className="fas fa-user"></i></div><div><h1 className="font-bold">{user.nama}</h1><p className="text-xs text-blue-200">Warga Desa {NAMA_DESA}</p></div></div><button onClick={handleLogout} className="p-2.5 bg-red-500/20 text-red-100 rounded-full hover:bg-red-500"><i className="fas fa-power-off"></i></button></div></header>
+            {renderToast()}
+            <header className="bg-blue-700 text-white p-4 shadow-md sticky top-0 z-20"><div className="max-w-4xl mx-auto flex justify-between items-center"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-white/20 rounded-full flex justify-center items-center"><i className="fas fa-user"></i></div><div><h1 className="font-bold">{user?.nama}</h1><p className="text-xs text-blue-200">Warga Desa {NAMA_DESA}</p></div></div><button onClick={handleLogout} className="p-2.5 bg-red-500/20 text-red-100 rounded-full hover:bg-red-500"><i className="fas fa-power-off"></i></button></div></header>
             <main className="flex-1 p-4 md:p-6 max-w-4xl mx-auto w-full space-y-6">
               <div className="bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-4">
                 <div><h2 className="text-2xl font-bold mb-1">Butuh Surat Apa Hari Ini?</h2><p className="text-blue-50 text-sm">Ajukan permohonan secara digital lalu unduh PDF-nya.</p></div>
@@ -512,6 +487,7 @@
 
         return (
           <div className="min-h-screen flex flex-col bg-slate-50">
+            {renderToast()}
             <header className="bg-white p-4 shadow-sm flex items-center gap-3 sticky top-0 z-20"><button onClick={() => setView('dashboard_warga')} className="p-2 bg-gray-100 rounded-full"><i className="fas fa-arrow-left"></i></button><h1 className="font-bold text-lg">Buat Pengajuan Baru</h1></header>
             <main className="flex-1 p-4 max-w-2xl mx-auto w-full">
               <form onSubmit={handleSubmitSurat} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
@@ -551,11 +527,19 @@
         };
 
         const safePengajuan = Array.isArray(pengajuan) ? pengajuan : [];
-        const filtered = safePengajuan.filter(p => (filterStatus === 'All' || p.status === filterStatus) && (p.namaWarga.toLowerCase().includes(searchTerm.toLowerCase()) || p.id.toLowerCase().includes(searchTerm.toLowerCase())));
+        const filtered = safePengajuan.filter(p => {
+          if (!p) return false;
+          const matchStatus = filterStatus === 'All' || p.status === filterStatus;
+          const strSearch = String(searchTerm || '').toLowerCase();
+          const matchNama = String(p.namaWarga || '').toLowerCase().includes(strSearch);
+          const matchId = String(p.id || '').toLowerCase().includes(strSearch);
+          const matchNik = String(p.nik || '').toLowerCase().includes(strSearch);
+          return matchStatus && (matchNama || matchId || matchNik);
+        });
 
         return (
           <div className="min-h-screen bg-gray-100 flex flex-col">
-            <ToastMessage /> <ImagePreviewModal /> <UploadFinalModal />
+            {renderToast()} {renderImagePreviewModal()} {renderUploadFinalModal()}
             <header className="bg-slate-800 text-white p-4 shadow-md sticky top-0 z-20"><div className="max-w-7xl mx-auto flex justify-between items-center"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-blue-600 rounded-lg flex justify-center items-center text-xl"><i className="fas fa-desktop"></i></div><div><h1 className="font-bold">Admin Pelayanan</h1><p className="text-xs text-slate-300">Desa {NAMA_DESA}</p></div></div><button onClick={handleLogout} className="bg-slate-700 px-4 py-2 rounded-lg hover:bg-red-600"><i className="fas fa-sign-out-alt"></i> Keluar</button></div></header>
 
             <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
@@ -563,9 +547,9 @@
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <div className="col-span-1 md:col-span-2 grid grid-cols-2 gap-4">
                   <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-blue-500"><p className="text-xs text-gray-500 font-bold uppercase">Total Masuk</p><p className="text-3xl font-black">{safePengajuan.length}</p></div>
-                  <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-yellow-500"><p className="text-xs text-gray-500 font-bold uppercase">Antrean Baru</p><p className="text-3xl font-black text-yellow-600">{safePengajuan.filter(p=>p.status==='Pending').length}</p></div>
-                  <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-purple-500"><p className="text-xs text-gray-500 font-bold uppercase">Perlu Dicetak</p><p className="text-3xl font-black text-purple-600">{safePengajuan.filter(p=>p.status==='Menunggu Cetak').length}</p></div>
-                  <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-emerald-500"><p className="text-xs text-gray-500 font-bold uppercase">Selesai</p><p className="text-3xl font-black text-emerald-600">{safePengajuan.filter(p=>p.status==='Selesai').length}</p></div>
+                  <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-yellow-500"><p className="text-xs text-gray-500 font-bold uppercase">Antrean Baru</p><p className="text-3xl font-black text-yellow-600">{safePengajuan.filter(p=>p && p.status==='Pending').length}</p></div>
+                  <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-purple-500"><p className="text-xs text-gray-500 font-bold uppercase">Perlu Dicetak</p><p className="text-3xl font-black text-purple-600">{safePengajuan.filter(p=>p && p.status==='Menunggu Cetak').length}</p></div>
+                  <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-emerald-500"><p className="text-xs text-gray-500 font-bold uppercase">Selesai</p><p className="text-3xl font-black text-emerald-600">{safePengajuan.filter(p=>p && p.status==='Selesai').length}</p></div>
                 </div>
                 <div className="col-span-1 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col items-center">
                   <h3 className="text-sm font-bold text-gray-600 mb-2 w-full text-center">Distribusi Status Surat</h3>
@@ -642,10 +626,10 @@
 
       if (view === 'dashboard_kades') {
         const safePengajuan = Array.isArray(pengajuan) ? pengajuan : [];
-        const butuhTtd = safePengajuan.filter(p => p.status === 'Menunggu Kades');
+        const butuhTtd = safePengajuan.filter(p => p && p.status === 'Menunggu Kades');
         return (
           <div className="min-h-screen bg-slate-50 flex flex-col">
-            <ToastMessage /> <SignatureModal />
+            {renderToast()} {renderSignatureModal()}
             <header className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20"><div className="max-w-7xl mx-auto flex justify-between items-center"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-amber-500 rounded-lg flex justify-center items-center text-xl"><i className="fas fa-user-tie"></i></div><div><h1 className="font-bold">Dashboard Kades</h1><p className="text-xs text-slate-300">Desa {NAMA_DESA}</p></div></div><button onClick={handleLogout} className="bg-slate-800 px-4 py-2 rounded-lg hover:bg-red-600"><i className="fas fa-sign-out-alt"></i> Keluar</button></div></header>
 
             <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full space-y-6">
@@ -684,7 +668,7 @@
       // --- TAMPILAN: CETAK SURAT (ADMIN) ---
       if (view === 'cetak_surat' && selectedSuratCetak) {
         const s = selectedSuratCetak;
-        const noSurat = `140 / ${s.id.replace('REQ','')} / DS-${NAMA_DESA.substring(0,3).toUpperCase()} / 2026`;
+        const noSurat = `140 / ${String(s.id).replace('REQ','')} / DS-${NAMA_DESA.substring(0,3).toUpperCase()} / 2026`;
 
         return (
           <div className="min-h-screen bg-gray-300 md:p-8 flex flex-col items-center pb-20 print:bg-white print:p-0">
